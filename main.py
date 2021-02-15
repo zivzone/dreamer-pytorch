@@ -14,7 +14,8 @@ from models import bottle, Encoder, ObservationModel, RewardModel, TransitionMod
 from planner import MPCPlanner
 from utils import lineplot, write_video, imagine_ahead, lambda_return, FreezeParameters, ActivateParameters
 from tensorboardX import SummaryWriter
-
+import warnings
+warnings.filterwarnings("ignore")
 
 # Hyperparameters
 parser = argparse.ArgumentParser(description='PlaNet or Dreamer')
@@ -24,10 +25,12 @@ parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random see
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 parser.add_argument('--env', type=str, default='Pendulum-v0', choices=GYM_ENVS + CONTROL_SUITE_ENVS, help='Gym/Control Suite environment')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
-parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
+# parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
+parser.add_argument('--max-episode-length', type=int, default=300, metavar='T', help='Max episode length')
 parser.add_argument('--experience-size', type=int, default=1000000, metavar='D', help='Experience replay size')  # Original implementation has an unlimited buffer size, but 1 million is the max experience collected anyway
 parser.add_argument('--cnn-activation-function', type=str, default='relu', choices=dir(F), help='Model activation function for a convolution layer')
-parser.add_argument('--dense-activation-function', type=str, default='elu', choices=dir(F), help='Model activation function a dense layer')
+# parser.add_argument('--dense-activation-function', type=str, default='elu', choices=dir(F), help='Model activation function a dense layer')
+parser.add_argument('--dense-activation-function', type=str, default='tanh', choices=dir(F), help='Model activation function a dense layer')
 parser.add_argument('--embedding-size', type=int, default=1024, metavar='E', help='Observation embedding size')  # Note that the default encoder for visual observations outputs a 1024D vector; for other embedding sizes an additional fully-connected layer is used
 parser.add_argument('--hidden-size', type=int, default=200, metavar='H', help='Hidden size')
 parser.add_argument('--belief-size', type=int, default=200, metavar='H', help='Belief/hidden size')
@@ -105,6 +108,8 @@ elif not args.test:
     while not done:
       action = env.sample_random_action()
       next_observation, reward, done = env.step(action)
+      # print('next_observation.shape',next_observation.shape)
+      # print(next_observation)
       D.append(observation, action, reward, done)
       observation = next_observation
       t += 1
@@ -180,7 +185,8 @@ if args.test:
           pbar.close()
           break
   print('Average Reward:', total_reward / args.test_episodes)
-  env.close()
+  # env.close()
+  print('We use airsim env, so we do not have env.close')
   quit()
 
 
@@ -328,19 +334,26 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     actor_model.eval()
     value_model.eval()
     # Initialise parallelised test environments
-    test_envs = EnvBatcher(Env, (args.env, args.symbolic_env, args.seed, args.max_episode_length, args.action_repeat, args.bit_depth), {}, args.test_episodes)
-    
+    print('we are testing')
+    print('we don not use env batch')
+    # test_envs = EnvBatcher(Env, (args.env, args.symbolic_env, args.seed, args.max_episode_length, args.action_repeat, args.bit_depth), {}, args.test_episodes)
+    test_envs = env
+    done = 0
     with torch.no_grad():
       observation, total_rewards, video_frames = test_envs.reset(), np.zeros((args.test_episodes, )), []
       belief, posterior_state, action = torch.zeros(args.test_episodes, args.belief_size, device=args.device), torch.zeros(args.test_episodes, args.state_size, device=args.device), torch.zeros(args.test_episodes, env.action_size, device=args.device)
       pbar = tqdm(range(args.max_episode_length // args.action_repeat))
       for t in pbar:
         belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(args, test_envs, planner, transition_model, encoder, belief, posterior_state, action, observation.to(device=args.device))
-        total_rewards += reward.numpy()
+        # total_rewards += reward.numpy()
+        total_rewards += reward
         if not args.symbolic_env:  # Collect real vs. predicted frames for video
-          video_frames.append(make_grid(torch.cat([observation, observation_model(belief, posterior_state).cpu()], dim=3) + 0.5, nrow=5).numpy())  # Decentre
+          # video_frames.append(make_grid(torch.cat([observation, observation_model(belief, posterior_state).cpu()], dim=3) + 0.5, nrow=5).numpy())  # Decentre
+          video_frames.append(make_grid(torch.cat([observation[:,[2,1,0],:,:], observation_model(belief, posterior_state).cpu()[:,[2,1,0],:,:]], dim=3) + 0.5, nrow=5).numpy())  # Decentre
         observation = next_observation
-        if done.sum().item() == args.test_episodes:
+        # print('observation.shape',observation.shape)
+        # if done.sum().item() == args.test_episodes:
+        if done == 1:
           pbar.close()
           break
     
@@ -363,7 +376,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     actor_model.train()
     value_model.train()
     # Close test environments
-    test_envs.close()
+    # test_envs.close()
 
   writer.add_scalar("train_reward", metrics['train_rewards'][-1], metrics['steps'][-1])
   writer.add_scalar("train/episode_reward", metrics['train_rewards'][-1], metrics['steps'][-1]*args.action_repeat)

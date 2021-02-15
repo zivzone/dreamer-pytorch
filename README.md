@@ -17,6 +17,14 @@ To install all dependencies with Anaconda run using the following commands.
 ```bash
 python main.py --algo dreamer --env walker-walk --action-repeat 2 --id name-of-experiement
 ```
+### **For Airsim environment**
+```
+#open environment
+./AirSimExe.sh -windowed -opengl4
+
+#training
+python main.py --algo dreamer --env Pendulum-v0 --action-repeat 2 --id name-of-experiement --test-episodes 1
+```
 
 For best performance with DeepMind Control Suite, try setting environment variable `MUJOCO_GL=egl` (see instructions and details [here](https://github.com/deepmind/dm_control#rendering)).
 

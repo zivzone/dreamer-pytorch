@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import torch
+import airsim_gym_env
 
 
 GYM_ENVS = ['Pendulum-v0', 'MountainCarContinuous-v0', 'Ant-v2', 'HalfCheetah-v2', 'Hopper-v2', 'Humanoid-v2', 'HumanoidStandup-v2', 'InvertedDoublePendulum-v2', 'InvertedPendulum-v2', 'Reacher-v2', 'Swimmer-v2', 'Walker2d-v2']
@@ -91,8 +92,16 @@ class GymEnv():
   def __init__(self, env, symbolic, seed, max_episode_length, action_repeat, bit_depth):
     import gym
     self.symbolic = symbolic
-    self._env = gym.make(env)
-    self._env.seed(seed)
+    # self._env = gym.make(env)
+    self._env = airsim_gym_env.AirSimEnviroment()
+    self._env.load_level("Soccer_Field_Easy")
+    self._env.initialize_drone()
+    self._env.get_ground_truth_gate_poses()
+    self._env.start_image_callback_thread()
+    self._env.start_odometry_callback_thread()
+    self._env.start_pass_callback_thread()
+    
+    # self._env.seed(seed)
     self.max_episode_length = max_episode_length
     self.action_repeat = action_repeat
     self.bit_depth = bit_depth
@@ -103,7 +112,8 @@ class GymEnv():
     if self.symbolic:
       return torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
     else:
-      return _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
+      # return _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
+      return _images_to_observation(self._env.Img_rgb, self.bit_depth)
   
   def step(self, action):
     action = action.detach().numpy()
@@ -118,7 +128,12 @@ class GymEnv():
     if self.symbolic:
       observation = torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
     else:
-      observation = _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
+      # observation = _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
+      observation = _images_to_observation(self._env.Img_rgb, self.bit_depth)
+    
+    # print('self._env.render',self._env.render(mode='rgb_array').shape) # (400, 600, 3)
+    # print('self._env.render',self._env.render(mode='rgb_array')) # max value = 255
+
     return observation, reward, done
 
   def render(self):
