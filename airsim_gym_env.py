@@ -83,7 +83,7 @@ class AirSimEnviroment(object):
         self.done = False
         self.MAX_ep_step = 300
         self.max_acc = 150
-        self.control_mode = "rpyt"
+        self.control_mode = "vel_rpyt"
         self.reward_parameter = {"pass_Gate":150,
                                  "error_punish":-2.0,
                                  "yaw_error_punish":-0.5,
@@ -440,7 +440,8 @@ class AirSimEnviroment(object):
         elif self.control_mode == "vel_rpyt":
             kp = 0.2
             kd = 0.0075
-            vx_t, vy_t, vz_t, w_yaw = float(action[0,])*10, float(action[1,])*10, float(action[2,])*15, float(action[3,])*5
+            # vx_t, vy_t, vz_t, w_yaw = float(action[0,])*10, float(action[1,])*10, float(action[2,])*15, float(action[3,])*5
+            vx_t, vy_t, vz_t, w_yaw = float(action[0,])*5, float(action[1,])*5, float(action[2,])*5, float(action[3,])*5
             vx_r, vy_r, vz_r = self.x_vel, self.y_vel, self.z_vel
             eVx, eVy, eVz = vx_t-vx_r, vy_t-vy_r, vz_t-vz_r
             eVyaw = w_yaw+self.drone_angular_velocity.z_val
@@ -487,7 +488,7 @@ class AirSimEnviroment(object):
                                                          throttle = 0.58+throttle,
                                                          duration = 0.1,
                                                          vehicle_name = self.drone_name).join()
-
+        '''
         Next_state = np.array([self.x_error,
                                self.y_error,
                                self.z_error,
@@ -496,7 +497,8 @@ class AirSimEnviroment(object):
                                self.y_vel,
                                self.z_vel,
                                -1*self.drone_angular_velocity.z_val])
-
+        '''
+        Next_state = self.Img_rgb
         Reward = self._get_reward(action)
         Done = self.done
         Info = None
@@ -528,11 +530,15 @@ class AirSimEnviroment(object):
         Reward_vel = self.reward_parameter["vel_punish"]*(abs(self.x_vel-self.design_vel))
 
         if self.stop_motion_c > self.MAX_ep_step:
+            # print('Reward_no_motion')
             Reward_no_motion = self.reward_parameter["no_motion_punish"]
         else:
+            # print('Reward_yes_motion')
             Reward_no_motion = 0
         if self.done:
             Reward_step = self.reward_parameter["step_punish"]*(math.e**(-0.05*self.ep_time_step))
+            # print('done',Reward_step)
+        
         else:
             Reward_step = 0
 

@@ -125,12 +125,14 @@ class GymEnv():
       done = done or self.t == self.max_episode_length
       if done:
         break
+    
     if self.symbolic:
       observation = torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
     else:
       # observation = _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
       observation = _images_to_observation(self._env.Img_rgb, self.bit_depth)
     
+    # observation = state
     # print('self._env.render',self._env.render(mode='rgb_array').shape) # (400, 600, 3)
     # print('self._env.render',self._env.render(mode='rgb_array')) # max value = 255
 
@@ -140,7 +142,11 @@ class GymEnv():
     self._env.render()
 
   def close(self):
-    self._env.close()
+    # self._env.close()
+    self._env.reset_race()
+    self._env.stop_image_callback_thread()
+    self._env.stop_odometry_callback_thread()
+    self._env.stop_pass_callback_thread()
 
   @property
   def observation_size(self):
@@ -148,11 +154,13 @@ class GymEnv():
 
   @property
   def action_size(self):
+    print('self._env.action_space.shape[0].shape',self._env.action_space.shape[0])
     return self._env.action_space.shape[0]
 
   # Sample an action randomly from a uniform distribution over all valid actions
   def sample_random_action(self):
-    return torch.from_numpy(self._env.action_space.sample())
+    # return torch.from_numpy(self._env.action_space.sample())
+    return torch.from_numpy((self._env.random_action()).clip(-1, 1))
 
 
 def Env(env, symbolic, seed, max_episode_length, action_repeat, bit_depth):

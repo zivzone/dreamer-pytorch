@@ -14,6 +14,7 @@ from models import bottle, Encoder, ObservationModel, RewardModel, TransitionMod
 from planner import MPCPlanner
 from utils import lineplot, write_video, imagine_ahead, lambda_return, FreezeParameters, ActivateParameters
 from tensorboardX import SummaryWriter
+import time
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -37,8 +38,8 @@ parser.add_argument('--belief-size', type=int, default=200, metavar='H', help='B
 parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='State/latent size')
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
 parser.add_argument('--action-noise', type=float, default=0.3, metavar='ε', help='Action noise')
-parser.add_argument('--episodes', type=int, default=1000, metavar='E', help='Total number of episodes')
-parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
+parser.add_argument('--episodes', type=int, default=2000, metavar='E', help='Total number of episodes')
+parser.add_argument('--seed-episodes', type=int, default=100, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=100, metavar='C', help='Collect interval')
 parser.add_argument('--batch-size', type=int, default=50, metavar='B', help='Batch size')
 parser.add_argument('--chunk-size', type=int, default=50, metavar='L', help='Chunk size')
@@ -105,14 +106,30 @@ elif not args.test:
   # Initialise dataset D with S random seed episodes
   for s in range(1, args.seed_episodes + 1):
     observation, done, t = env.reset(), False, 0
+    single_trial_reward = 0
+    episode_timesteps = 0
     while not done:
+      # episode_timesteps += 1
+      env._env.ep_time_step = t#episode_timesteps
+      # start_time = time.time()
       action = env.sample_random_action()
+      # end_time = time.time()
+      # print('action fps',1/(end_time-start_time))
+      
+      # start_o_time = time.time()
       next_observation, reward, done = env.step(action)
+      # end_o_time = time.time()
+      # print('ob fps',1/(end_o_time-start_o_time)) # ob fps = 4.9
+
       # print('next_observation.shape',next_observation.shape)
       # print(next_observation)
+      # print('reward',reward)
+      single_trial_reward += reward
       D.append(observation, action, reward, done)
       observation = next_observation
       t += 1
+    print('this random get reward',single_trial_reward)
+    # print()
     metrics['steps'].append(t * args.action_repeat + (0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
     metrics['episodes'].append(s)
 
@@ -148,19 +165,27 @@ global_prior = Normal(torch.zeros(args.batch_size, args.state_size, device=args.
 free_nats = torch.full((1, ), args.free_nats, device=args.device)  # Allowed deviation in KL divergence
 
 
-def update_belief_and_act(args, env, planner, transition_model, encoder, belief, posterior_state, action, observation, explore=False):
+def update_belief_and_act(args, env, planner, transition_model, encoder, belief, posterior_state, action, observation, explore=False, now_timesteps=0):
   # Infer belief over current state q(s_t|o≤t,a<t) from the history
   # print("action size: ",action.size()) torch.Size([1, 6])
   belief, _, _, _, posterior_state, _, _ = transition_model(posterior_state, action.unsqueeze(dim=0), belief, encoder(observation).unsqueeze(dim=0))  # Action and observation need extra time dimension
   belief, posterior_state = belief.squeeze(dim=0), posterior_state.squeeze(dim=0)  # Remove time dimension from belief/state
   if args.algo=="dreamer":
+    # start_a_time = time.time()
     action = planner.get_action(belief, posterior_state, det=not(explore))
+    # end_a_time = time.time()
+    # print('a fps', 1/(end_a_time - start_a_time)) # fps 1837.1896627244853 
   else:
     action = planner(belief, posterior_state)  # Get action from planner(q(s_t|o≤t,a<t), p)
   if explore:
     action = torch.clamp(Normal(action, args.action_noise).rsample(), -1, 1) # Add gaussian exploration noise on top of the sampled action
     # action = action + args.action_noise * torch.randn_like(action)  # Add exploration noise ε ~ p(ε) to the action
+  # start_o_time = time.time()
+  episode_timesteps = now_timesteps
+  env._env.ep_time_step = episode_timesteps
   next_observation, reward, done = env.step(action.cpu() if isinstance(env, EnvBatcher) else action[0].cpu())  # Perform environment step (action repeats handled internally)
+  # end_o_time = time.time()
+  # print('o fps', 1/(end_o_time - start_o_time))
   return belief, posterior_state, action, next_observation, reward, done
 
 
@@ -306,7 +331,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     pbar = tqdm(range(args.max_episode_length // args.action_repeat))
     for t in pbar:
       # print("step",t)
-      belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(args, env, planner, transition_model, encoder, belief, posterior_state, action, observation.to(device=args.device), explore=True)
+      belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(args, env, planner, transition_model, encoder, belief, posterior_state, action, observation.to(device=args.device), explore=True, now_timesteps=t)
       D.append(observation, action.cpu(), reward, done)
       total_reward += reward
       observation = next_observation
@@ -344,7 +369,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
       belief, posterior_state, action = torch.zeros(args.test_episodes, args.belief_size, device=args.device), torch.zeros(args.test_episodes, args.state_size, device=args.device), torch.zeros(args.test_episodes, env.action_size, device=args.device)
       pbar = tqdm(range(args.max_episode_length // args.action_repeat))
       for t in pbar:
-        belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(args, test_envs, planner, transition_model, encoder, belief, posterior_state, action, observation.to(device=args.device))
+        belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(args, test_envs, planner, transition_model, encoder, belief, posterior_state, action, observation.to(device=args.device), now_timesteps=t)
         # total_rewards += reward.numpy()
         total_rewards += reward
         if not args.symbolic_env:  # Collect real vs. predicted frames for video
