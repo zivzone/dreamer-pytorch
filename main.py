@@ -17,6 +17,7 @@ from tensorboardX import SummaryWriter
 import time
 import warnings
 warnings.filterwarnings("ignore")
+# torch.backends.cudnn.benchmark = True
 
 # Hyperparameters
 parser = argparse.ArgumentParser(description='PlaNet or Dreamer')
@@ -38,7 +39,7 @@ parser.add_argument('--belief-size', type=int, default=200, metavar='H', help='B
 parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='State/latent size')
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
 parser.add_argument('--action-noise', type=float, default=0.3, metavar='ε', help='Action noise')
-parser.add_argument('--episodes', type=int, default=2000, metavar='E', help='Total number of episodes')
+parser.add_argument('--episodes', type=int, default=20000, metavar='E', help='Total number of episodes')
 parser.add_argument('--seed-episodes', type=int, default=100, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=100, metavar='C', help='Collect interval')
 parser.add_argument('--batch-size', type=int, default=50, metavar='B', help='Batch size')
@@ -91,7 +92,7 @@ else:
   print("using CPU")
   args.device = torch.device('cpu')
 metrics = {'steps': [], 'episodes': [], 'train_rewards': [], 'test_episodes': [], 'test_rewards': [], 
-           'observation_loss': [], 'reward_loss': [], 'kl_loss': [], 'actor_loss': [], 'value_loss': []}
+           'observation_loss': [], 'reward_loss': [], 'kl_loss': [], 'actor_loss': [], 'value_loss': [], 'pass_gate': []}
 
 summary_name = results_dir + "/{}_{}_log"
 writer = SummaryWriter(summary_name.format(args.env, args.id))
@@ -128,7 +129,7 @@ elif not args.test:
       D.append(observation, action, reward, done)
       observation = next_observation
       t += 1
-    print('this random get reward',single_trial_reward)
+    print('this random get reward',single_trial_reward,'pass gate num:',env._env.gate_counter)
     # print()
     metrics['steps'].append(t * args.action_repeat + (0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
     metrics['episodes'].append(s)
@@ -345,7 +346,10 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     metrics['steps'].append(t + metrics['steps'][-1])
     metrics['episodes'].append(episode)
     metrics['train_rewards'].append(total_reward)
+    metrics['pass_gate'].append(env._env.gate_counter)
+    # 'pass gate num:',env._env.gate_counter
     lineplot(metrics['episodes'][-len(metrics['train_rewards']):], metrics['train_rewards'], 'train_rewards', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['pass_gate']):], metrics['pass_gate'], 'pass_gate', results_dir)
 
 
   # Test model
@@ -405,12 +409,13 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
 
   writer.add_scalar("train_reward", metrics['train_rewards'][-1], metrics['steps'][-1])
   writer.add_scalar("train/episode_reward", metrics['train_rewards'][-1], metrics['steps'][-1]*args.action_repeat)
+  writer.add_scalar("train/pass_gate", metrics['pass_gate'][-1], metrics['steps'][-1]*args.action_repeat)
   writer.add_scalar("observation_loss", metrics['observation_loss'][0][-1], metrics['steps'][-1])
   writer.add_scalar("reward_loss", metrics['reward_loss'][0][-1], metrics['steps'][-1])
   writer.add_scalar("kl_loss", metrics['kl_loss'][0][-1], metrics['steps'][-1])
   writer.add_scalar("actor_loss", metrics['actor_loss'][0][-1], metrics['steps'][-1])
-  writer.add_scalar("value_loss", metrics['value_loss'][0][-1], metrics['steps'][-1])  
-  print("episodes: {}, total_steps: {}, train_reward: {} ".format(metrics['episodes'][-1], metrics['steps'][-1], metrics['train_rewards'][-1]))
+  writer.add_scalar("value_loss", metrics['value_loss'][0][-1], metrics['steps'][-1]) 
+  print("episodes: {}, total_steps: {}, train_reward: {}, pass_gate: {} ".format(metrics['episodes'][-1], metrics['steps'][-1], metrics['train_rewards'][-1], metrics['pass_gate'][-1]))
 
   # Checkpoint models
   if episode % args.checkpoint_interval == 0:
@@ -425,8 +430,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 'value_optimizer': value_optimizer.state_dict()
                 }, os.path.join(results_dir, 'models_%d.pth' % episode))
     if args.checkpoint_experience:
-      torch.save(D, os.path.join(results_dir, 'experience.pth'))  # Warning: will fail with MemoryError with large memory sizes
-
-
+      torch.save(D, os.path.join(results_dir, 'experience.pth'), pickle_protocol=4)  # Warning: will fail with MemoryError with large memory sizes
+      # pickle.dump(D, open("file", 'w'), protocol=4)
 # Close training environment
 env.close()

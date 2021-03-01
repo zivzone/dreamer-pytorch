@@ -24,6 +24,9 @@ python main.py --algo dreamer --env walker-walk --action-repeat 2 --id name-of-e
 
 #training
 python main.py --algo dreamer --env Pendulum-v0 --action-repeat 1 --id for_airsim_action_repeat1 --test-episodes 1
+
+ python main.py --algo dreamer --env Pendulum-v0 --action-repeat 1 --id for_airsim_action_repeat1_after_950_1400episodes --test-episodes 1 --models='/home/pc3396/2TB/dreamer-pytorch/results/Pendulum-v0_for_airsim_action_repeat1_after_950episodes/models_1400.pth'
+
 ```
 
 For best performance with DeepMind Control Suite, try setting environment variable `MUJOCO_GL=egl` (see instructions and details [here](https://github.com/deepmind/dm_control#rendering)).
